@@ -1,179 +1,195 @@
 import React, { useState, useEffect } from 'react';
-import { View, Image, FlatList, TextInput, TouchableOpacity, ActivityIndicator, Text, StyleSheet } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Snackbar } from 'react-native-paper';
-import { NavigationContainer } from '@react-navigation/native';
-import { createDrawerNavigator } from '@react-navigation/drawer';
-import Search from '../app/SearchScreen'
+import { StyleSheet, View, Text, TouchableOpacity, FlatList, Alert } from 'react-native';
+import Feather from 'react-native-vector-icons/Feather';
+import { Dialog, Portal, Button, Provider, TextInput as PaperTextInput } from 'react-native-paper';
+import * as Notifications from 'expo-notifications';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
-const FLICKR_API_URL = 'https://api.flickr.com/services/rest/?method=flickr.photos.getRecent&per_page=20&page=';
-const FLICKR_SEARCH_API_URL = 'https://api.flickr.com/services/rest/?method=flickr.photos.search&per_page=20&api_key=6f102c62f41998d151e5a1b48713cf13&format=json&nojsoncallback=1&extras=url_s&text=';
-const CACHE_KEY = 'FLICKR_IMAGES';
-const API_KEY = '6f102c62f41998d151e5a1b48713cf13';
-
-const Drawer = createDrawerNavigator();
-
-const HomeScreen = () => {
-  const [images, setImages] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [isFetchingMore, setIsFetchingMore] = useState(false);
-  const [searchText, setSearchText] = useState('');
-  const [showRetrySnackbar, setShowRetrySnackbar] = useState(false);
+const PillManagementApp = () => {
+  const [medications, setMedications] = useState([]);
+  const [newMedicationName, setNewMedicationName] = useState('');
+  const [newMedicationDosage, setNewMedicationDosage] = useState('');
+  const [newMedicationFrequency, setNewMedicationFrequency] = useState('');
+  const [newMedicationTime, setNewMedicationTime] = useState(new Date());
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [editingMedicationIndex, setEditingMedicationIndex] = useState(null);
+  const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    fetchImages();
-  }, [currentPage]);
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      }),
+    });
+  }, []);
 
-  const fetchImages = async () => {
-    try {
-      const cachedImages = await AsyncStorage.getItem(CACHE_KEY);
-      if (cachedImages && currentPage === 1) {
-        const parsedCachedImages = JSON.parse(cachedImages);
-        console.log('Loading images from cache:', parsedCachedImages);
-        setImages(parsedCachedImages);
-      }
-  
-      const response = await fetch(`${FLICKR_API_URL}${currentPage}&api_key=${API_KEY}&format=json&nojsoncallback=1&extras=url_s,date_taken,tags,owner,description`);
-      
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-  
-      const data = await response.json();
-      const newImages = data.photos.photo.map(photo => ({
-        id: photo.id,
-        title: photo.title,
-        url: photo.url_s,
-        owner: {
-          id: photo.owner,
-          username: photo.ownername,
-        },
-        date_taken: photo.datetaken,
-        tags: photo.tags ? photo.tags.split(' ') : [],
-        description: photo.description || 'No description available',
-      }));
-  
-      if (currentPage === 1) {
-        await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(newImages));
-      }
-  
-      setImages((prevImages) => [...prevImages, ...newImages]);
-    } catch (error) {
-      console.error('Error fetching images:', error);
-      setShowRetrySnackbar(true);
-    } finally {
-      setLoading(false);
-      setIsFetchingMore(false);
-    }
-  };
-  
-
-  const handleLoadMore = () => {
-    if (!isFetchingMore && currentPage < 3) {
-      setIsFetchingMore(true);
-      setCurrentPage(currentPage + 1);
+  const addMedication = async () => {
+    if (newMedicationName && newMedicationDosage && newMedicationFrequency) {
+      const newMedication = {
+        name: newMedicationName,
+        dosage: newMedicationDosage,
+        frequency: newMedicationFrequency,
+        time: newMedicationTime.toTimeString().slice(0, 5), // Format as HH:MM
+      };
+      setMedications([...medications, newMedication]);
+      await scheduleNotification(newMedicationName, newMedicationTime);
+      clearNewMedicationForm();
+    } else {
+      Alert.alert("Error", "Please fill in all the fields.");
     }
   };
 
-  const handleSearch = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch(`${FLICKR_SEARCH_API_URL}${searchText}`);
-      const data = await response.json();
-      const searchedImages = data.photos.photo.map(photo => ({
-        id: photo.id,
-        title: photo.title,
-        url: photo.url_s,
-        owner: {
-          id: photo.owner,
-          username: photo.ownername,
-        },
-        date_taken: photo.datetaken,
-        tags: photo.tags ? photo.tags.split(' ') : [],
-        description: photo.description || 'No description available',
-      }));
-      
-      // Log the search results
-      console.log('Search results:', searchedImages);
-  
-      setImages(searchedImages);
-    } catch (error) {
-      console.error('Error searching images:', error);
-      setShowRetrySnackbar(true);
-    } finally {
-      setLoading(false);
-    }
+  const editMedication = (index) => {
+    setEditingMedicationIndex(index);
+    const medication = medications[index];
+    setNewMedicationName(medication.name);
+    setNewMedicationDosage(medication.dosage);
+    setNewMedicationFrequency(medication.frequency);
+    setNewMedicationTime(new Date());
+    setVisible(true);
   };
-  
 
-  const renderItem = ({ item }) => (
-    <View style={styles.photoContainer}>
-      <Image source={{ uri: item.url }} style={styles.photo} />
-    </View>
-  );
+  const saveMedicationEdit = () => {
+    const updatedMedications = [...medications];
+    updatedMedications[editingMedicationIndex] = {
+      name: newMedicationName,
+      dosage: newMedicationDosage,
+      frequency: newMedicationFrequency,
+      time: newMedicationTime.toTimeString().slice(0, 5),
+    };
+    setMedications(updatedMedications);
+    setEditingMedicationIndex(null);
+    clearNewMedicationForm();
+    setVisible(false);
+  };
+
+  const deleteMedication = (index) => {
+    setMedications(medications.filter((_, i) => i !== index));
+  };
+
+  const scheduleNotification = async (medicationName, medicationTime) => {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "Medication Reminder",
+        body: `It's time to take your ${medicationName}.`,
+      },
+      trigger: { seconds: Math.max((medicationTime.getTime() - new Date().getTime()) / 1000, 1) },
+    });
+  };
+
+  const clearNewMedicationForm = () => {
+    setNewMedicationName('');
+    setNewMedicationDosage('');
+    setNewMedicationFrequency('');
+    setNewMedicationTime(new Date());
+  };
+
+  const handleTimeChange = (event, selectedDate) => {
+    const currentDate = selectedDate || newMedicationTime;
+    setShowTimePicker(false);
+    setNewMedicationTime(currentDate);
+  };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search photos"
-          value={searchText}
-          onChangeText={setSearchText}
-          onSubmitEditing={handleSearch}
+    <Provider>
+      <View style={styles.container}>
+        <Text style={styles.title}>Pill Management</Text>
+        <PaperTextInput
+          label="Medication Name"
+          value={newMedicationName}
+          onChangeText={setNewMedicationName}
+          mode="outlined"
+          style={styles.input}
         />
-        <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
-          <Text style={styles.searchButtonText}>Search</Text>
+        <PaperTextInput
+          label="Dosage"
+          value={newMedicationDosage}
+          onChangeText={setNewMedicationDosage}
+          mode="outlined"
+          style={styles.input}
+        />
+        <PaperTextInput
+          label="Frequency"
+          value={newMedicationFrequency}
+          onChangeText={setNewMedicationFrequency}
+          mode="outlined"
+          style={styles.input}
+        />
+        <TouchableOpacity onPress={() => setShowTimePicker(true)} style={styles.timePickerButton}>
+          <Text style={styles.timePickerText}>
+            Set Time: {newMedicationTime.toTimeString().slice(0, 5)}
+          </Text>
         </TouchableOpacity>
-      </View>
+        {showTimePicker && (
+          <DateTimePicker
+            value={newMedicationTime}
+            mode="time"
+            display="spinner"
+            onChange={handleTimeChange}
+          />
+        )}
+        <TouchableOpacity style={styles.button} onPress={addMedication}>
+          <Text style={styles.buttonText}>Add Medication</Text>
+        </TouchableOpacity>
 
-      {loading ? (
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color="#6200ee" />
-        </View>
-      ) : (
         <FlatList
-          data={images}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          numColumns={2}
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.5}
-          contentContainerStyle={{ paddingBottom: 10 }}
-          ListFooterComponent={
-            isFetchingMore && (
-              <View style={styles.loaderContainer}>
-                <ActivityIndicator size="large" color="#6200ee" />
+          data={medications}
+          keyExtractor={(item, index) => index.toString()}
+          renderItem={({ item, index }) => (
+            <View style={styles.medicationItem}>
+              <View style={styles.medicationDetails}>
+                <Text style={styles.medicationName}>{item.name}</Text>
+                <Text style={styles.medicationInfo}>
+                  Dosage: {item.dosage} | Frequency: {item.frequency} | Time: {item.time}
+                </Text>
               </View>
-            )
-          }
+              <View style={styles.iconContainer}>
+                <TouchableOpacity onPress={() => editMedication(index)}>
+                  <Feather name="edit" size={24} color="blue" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => deleteMedication(index)}>
+                  <Feather name="trash-2" size={24} color="red" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         />
-      )}
 
-      <Snackbar
-        visible={showRetrySnackbar}
-        onDismiss={() => setShowRetrySnackbar(false)}
-        action={{
-          label: 'Retry',
-          onPress: fetchImages,
-        }}
-        style={styles.snackbar}
-      >
-        <Text style={styles.snackbarText}>Failed to fetch images. Please try again.</Text>
-      </Snackbar>
-    </View>
-  );
-};
-
-const App = () => {
-  return (
-    <NavigationContainer independent>
-      <Drawer.Navigator initialRouteName="Home">
-        <Drawer.Screen name="Home" component={HomeScreen} />
-        <Drawer.Screen name="Search" component={Search} />
-      </Drawer.Navigator>
-    </NavigationContainer>
+        <Portal>
+          <Dialog visible={visible} onDismiss={() => setVisible(false)}>
+            <Dialog.Title>Edit Medication</Dialog.Title>
+            <Dialog.Content>
+              <PaperTextInput
+                label="Medication Name"
+                value={newMedicationName}
+                onChangeText={setNewMedicationName}
+                mode="outlined"
+              />
+              <PaperTextInput
+                label="Dosage"
+                value={newMedicationDosage}
+                onChangeText={setNewMedicationDosage}
+                mode="outlined"
+              />
+              <PaperTextInput
+                label="Frequency"
+                value={newMedicationFrequency}
+                onChangeText={setNewMedicationFrequency}
+                mode="outlined"
+              />
+              <TouchableOpacity onPress={() => setShowTimePicker(true)} style={styles.timePickerButton}>
+                <Text style={styles.timePickerText}>Set Time: {newMedicationTime.toTimeString().slice(0, 5)}</Text>
+              </TouchableOpacity>
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button onPress={saveMedicationEdit}>Save</Button>
+            </Dialog.Actions>
+          </Dialog>
+        </Portal>
+      </View>
+    </Provider>
   );
 };
 
@@ -181,64 +197,65 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-    padding: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 24,
   },
-  searchContainer: {
-    flexDirection: 'row',
-    marginBottom: 20,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  searchInput: {
-    flex: 1,
-    padding: 10,
-    borderRadius: 10,
-    fontSize: 16,
-  },
-  searchButton: {
-    backgroundColor: '#007bff',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-    justifyContent: 'center',
-  },
-  searchButtonText: {
-    color: '#fff',
+  title: {
+    fontSize: 24,
     fontWeight: 'bold',
-    fontSize: 16,
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 16,
   },
-  photoContainer: {
-    flex: 1,
-    margin: 5,
-    borderRadius: 10,
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+  input: {
+    marginBottom: 12,
   },
-  photo: {
-    width: '100%',
-    height: undefined,
-    aspectRatio: 1,
-  },
-  loaderContainer: {
-    paddingVertical: 20,
-  },
-  snackbar: {
-    backgroundColor: '#f44336',
+  button: {
+    backgroundColor: '#4CAF50',
+    padding: 12,
     borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 16,
   },
-  snackbarText: {
+  buttonText: {
     color: '#fff',
+    fontSize: 16,
+  },
+  medicationItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  medicationDetails: {
+    flex: 1,
+  },
+  medicationName: {
+    fontSize: 18,
     fontWeight: 'bold',
+    color: '#333',
+  },
+  medicationInfo: {
+    fontSize: 14,
+    color: '#666',
+  },
+  iconContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  timePickerButton: {
+    backgroundColor: '#e0e0e0',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  timePickerText: {
+    color: '#333',
+    fontSize: 16,
   },
 });
 
-export default App;
+export default PillManagementApp;
